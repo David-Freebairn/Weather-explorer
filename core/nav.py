@@ -19,5 +19,6 @@ HOME     = st.Page("home.py", title="Menu", icon="\U0001F3E0", default=True)
 RAINFALL = st.Page("pages/1_Rainfall_chart.py", title="Rainfall chart")
 MONTHLY  = st.Page("pages/2_Monthly_averages.py", title="Monthly averages")
 SNAPSHOT = st.Page("pages/3_Snapshot.py", title="Snapshot")
+SEASON   = st.Page("pages/4_Season.py", title="Season")
 
-ALL_PAGES = [HOME, RAINFALL, MONTHLY, SNAPSHOT]
+ALL_PAGES = [HOME, RAINFALL, MONTHLY, SNAPSHOT, SEASON]
