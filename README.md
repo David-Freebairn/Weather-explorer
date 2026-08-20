@@ -4,15 +4,21 @@ A standalone Streamlit app for exploring SILO weather station records.
 
 ## Pages
 
-1. **Rainfall chart** — calendar-style grid of daily rainfall, either a
-   full year (12 months x 31 days) or a single month laid out as a wall
-   calendar. *(built)*
+1. **Rainfall chart** — calendar-style grid of daily rainfall for a
+   chosen year (12 months x 31 days), with a Total and long-term
+   Average row underneath. *(built)*
 2. **Monthly averages** — long-term monthly rain, evaporation, and
    min/max temperature (dual-axis chart), with an annual min/max/avg
    summary table underneath. *(built)*
 3. **Snapshot** — one year's daily temperature and monthly rainfall
    vs long-term mean. *(built — trimmed from RiskAware; no long-term
    annual-totals panel at this stage)*
+4. **Season** — this season's cumulative rainfall vs every year on
+   record (spaghetti + median, three most recent years highlighted),
+   plus a forward-looking 20th–80th percentile plume for the months
+   ahead, built by replaying each historical year's rainfall onto
+   today's actual total. *(built — ported from RiskAware's "How's the
+   season?" page)*
 
 ## Structure
 
@@ -29,6 +35,7 @@ core/styles.py                 # Shared CSS + station session-state helpers
 pages/1_Rainfall_chart.py     # Built
 pages/2_Monthly_averages.py   # Built
 pages/3_Snapshot.py           # Built
+pages/4_Season.py             # Built
 ```
 
 Run locally with `streamlit run Menu.py`. Same file for the Streamlit

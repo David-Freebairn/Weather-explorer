@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 
-from core.nav import RAINFALL, MONTHLY, SNAPSHOT
+from core.nav import RAINFALL, MONTHLY, SNAPSHOT, SEASON
 from core.silo import search_stations
 from core.styles import apply_styles, save_station, load_station
 
@@ -99,6 +99,39 @@ def _icon_snapshot_b64() -> str:
         for spine in ax.spines.values():
             spine.set_visible(False)
     fig.subplots_adjust(hspace=0.15)
+    return _fig_to_b64(fig)
+
+
+@st.cache_data
+def _icon_season_b64() -> str:
+    """Small spaghetti + forward-fan preview, echoing the Season page."""
+    rng = np.random.default_rng(11)
+    x_back = np.linspace(0, 1, 60)
+    x_fwd = np.linspace(1, 1.6, 20)
+
+    fig, ax = plt.subplots(figsize=(2.5, 1.3), dpi=100)
+    for _ in range(14):
+        walk = np.cumsum(rng.uniform(0, 1, 60))
+        walk = walk / walk[-1] * rng.uniform(0.5, 1.0)
+        ax.plot(x_back, walk, color="#7ab4d8", lw=0.8, alpha=0.4)
+
+    highlight_colors = ["#e8a33d", "#4f9d69", "#7d5ba6"]
+    for c in highlight_colors:
+        walk = np.cumsum(rng.uniform(0, 1, 60))
+        walk = walk / walk[-1] * rng.uniform(0.6, 0.95)
+        ax.plot(x_back, walk, color=c, lw=1.4, alpha=0.9)
+
+    current = np.cumsum(rng.uniform(0.3, 1, 60))
+    current = current / current[-1] * 0.75
+    ax.plot(x_back, current, color="#cc2200", lw=2)
+
+    p20 = current[-1] + (x_fwd - 1) * 0.15
+    p80 = current[-1] + (x_fwd - 1) * 1.1
+    ax.fill_between(x_fwd, p20, p80, color="#e8a33d", alpha=0.28, linewidth=0)
+
+    ax.set_xticks([]); ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
     return _fig_to_b64(fig)
 
 
@@ -197,7 +230,7 @@ st.markdown("**Select an analysis**")
 st.write("")
 
 # ── Analysis cards ──────────────────────────────────────────────────────────────
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 cards = [
     (col1, "Rainfall chart", "Calendar", _icon_calendar_b64(),
@@ -206,6 +239,8 @@ cards = [
      MONTHLY, "we_card_2"),
     (col3, "Snapshot", "Of a year", _icon_snapshot_b64(),
      SNAPSHOT, "we_card_3"),
+    (col4, "Season", "This season vs history", _icon_season_b64(),
+     SEASON, "we_card_4"),
 ]
 
 for col, title, sub, icon_b64, target, key in cards:
