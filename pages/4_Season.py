@@ -74,7 +74,17 @@ def shift_month(y: int, m: int, delta: int):
     return idx // 12, idx % 12 + 1
 
 
-def build_series(df: pd.DataFrame, months_back: int):
+def build_rain_lookup(df: pd.DataFrame) -> dict:
+    """
+    (year, month, day) -> rain, built once per station/dataset and reused
+    by both build_series() and build_forward_plume(). Vectorized (zip over
+    the underlying arrays) rather than df.iterrows(), which is slow for a
+    ~100+ year daily record and was previously being paid twice per rerun.
+    """
+    return dict(zip(zip(df.index.year, df.index.month, df.index.day), df["rain"].values))
+
+
+def build_series(df: pd.DataFrame, months_back: int, lookup: dict):
     """
     Look-back series: cumulative rainfall for every historical year,
     aligned to the same calendar window as the current season.
@@ -87,8 +97,6 @@ def build_series(df: pd.DataFrame, months_back: int):
         start_m += 12
         start_y -= 1
     year_offset = end_y - start_y
-
-    lookup = {(idx.year, idx.month, idx.day): row["rain"] for idx, row in df.iterrows()}
 
     data_years = sorted(df.index.year.unique())
     first_end_y = data_years[0] + year_offset
@@ -202,7 +210,7 @@ def _current_forward_dates(today, n_days: int):
 
 
 def build_forward_plume(df: pd.DataFrame, current_year: int, current_total: float,
-                         months_forward: int):
+                         months_forward: int, lookup: dict):
     """
     Forward-looking plume: for every historical year (excluding the
     current one), replay that year's daily rainfall for the calendar
@@ -214,8 +222,6 @@ def build_forward_plume(df: pd.DataFrame, current_year: int, current_total: floa
     today = df.index.max().date()
     end_m, end_d = today.month, today.day
     data_years = sorted(df.index.year.unique())
-
-    lookup = {(idx.year, idx.month, idx.day): row["rain"] for idx, row in df.iterrows()}
 
     trajectories = {}
     for hy in data_years:
@@ -478,7 +484,8 @@ A copy of the results can be downloaded as an image.
 """)
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
-series, current_year, median_ser, pctile, diff_mm = build_series(df, int(months_back))
+rain_lookup = build_rain_lookup(df)
+series, current_year, median_ser, pctile, diff_mm = build_series(df, int(months_back), rain_lookup)
 
 if series is None:
     st.warning("Not enough data for this window.")
@@ -491,7 +498,7 @@ current_total = float(series[current_year].iloc[-1])
 highlight_years = [y for y in (current_year - 1, current_year - 2, current_year - 3)
                     if y in series]
 
-plume = build_forward_plume(df, current_year, current_total, int(months_forward))
+plume = build_forward_plume(df, current_year, current_total, int(months_forward), rain_lookup)
 
 diff_sign = "+" if diff_mm >= 0 else ""  # noqa: F841 (kept for readability at call sites)
 diff_dir  = "above" if diff_mm >= 0 else "below"
@@ -525,58 +532,72 @@ st.markdown(f"""
 fig = make_chart(series, current_year, median_ser, highlight_years, plume,
                  name, int(months_back), int(months_forward))
 st.pyplot(fig, width="stretch")
-
-# ── Composite JPEG download (header panel + chart) ─────────────────────────────
-PANEL_H, CHART_H, DPI = 1.5, 6.3, 150
-
-comp_fig = plt.figure(figsize=(12, PANEL_H + CHART_H), facecolor="white")
-spec = gridspec.GridSpec(2, 1, figure=comp_fig, height_ratios=[PANEL_H, CHART_H], hspace=0.0)
-
-hax = comp_fig.add_subplot(spec[0])
-hax.set_facecolor("#f0f6ff")
-hax.set_xlim(0, 1); hax.set_ylim(0, 1)
-hax.axis("off")
-hax.text(0.012, 0.95, "Season's comparison", ha="left", va="top",
-          fontsize=14, fontweight="bold", color="#1a3a5c", transform=hax.transAxes)
-hax.text(0.012, 0.68, f"{name}    ({min_y}\u2013{max_y})    Mean annual rainfall {ann_mean} mm",
-          ha="left", va="top", fontsize=9.5, color="#444", transform=hax.transAxes)
-
-parts = [
-    ("Rainfall in the last ", "#444", False),
-    (f"{months_back} month{'s' if months_back != 1 else ''}", "#e06b00", True),
-    (" is in the ", "#444", False),
-    (f"{pctile} %ile", "#2979c4", True),
-    (f"  ( {abs_diff} mm {diff_dir} the average )", "#888", False),
-]
-comp_fig.canvas.draw()
-renderer = comp_fig.canvas.get_renderer()
-ax_bbox = hax.get_window_extent(renderer=renderer)
-x_cur, y_row = 0.012, 0.28
-for txt, col, bold in parts:
-    t = hax.text(x_cur, y_row, txt, ha="left", va="top", fontsize=10.5,
-                 fontweight="bold" if bold else "normal", color=col, transform=hax.transAxes)
-    comp_fig.canvas.draw()
-    bb = t.get_window_extent(renderer=renderer)
-    x_cur += bb.width / ax_bbox.width
-
-cax = comp_fig.add_subplot(spec[1])
-cax.set_facecolor(C_BG)
-_draw_chart(cax, series, current_year, median_ser, highlight_years, plume,
-            int(months_back), int(months_forward), name)
-cax.set_title("")  # header panel already carries the title
-
-comp_fig.tight_layout(pad=0.8)
-
-buf = io.BytesIO()
-comp_fig.savefig(buf, format="jpeg", dpi=DPI, bbox_inches="tight", facecolor="white")
-buf.seek(0)
-plt.close(comp_fig)
 plt.close(fig)
 
+# ── Composite JPEG download (header panel + chart) ─────────────────────────────
+# Built only on request, not on every rerun — matplotlib composition here
+# costs real time (a header panel with hand-laid-out text plus a full
+# re-draw of the chart), and most reruns are just the user adjusting the
+# months sliders, not asking to download.
+
+
+def _build_composite_jpeg() -> io.BytesIO:
+    PANEL_H, CHART_H, DPI = 1.5, 6.3, 150
+
+    comp_fig = plt.figure(figsize=(12, PANEL_H + CHART_H), facecolor="white")
+    spec = gridspec.GridSpec(2, 1, figure=comp_fig, height_ratios=[PANEL_H, CHART_H], hspace=0.0)
+
+    hax = comp_fig.add_subplot(spec[0])
+    hax.set_facecolor("#f0f6ff")
+    hax.set_xlim(0, 1); hax.set_ylim(0, 1)
+    hax.axis("off")
+    hax.text(0.012, 0.95, "Season's comparison", ha="left", va="top",
+              fontsize=14, fontweight="bold", color="#1a3a5c", transform=hax.transAxes)
+    hax.text(0.012, 0.68, f"{name}    ({min_y}\u2013{max_y})    Mean annual rainfall {ann_mean} mm",
+              ha="left", va="top", fontsize=9.5, color="#444", transform=hax.transAxes)
+
+    parts = [
+        ("Rainfall in the last ", "#444", False),
+        (f"{months_back} month{'s' if months_back != 1 else ''}", "#e06b00", True),
+        (" is in the ", "#444", False),
+        (f"{pctile} %ile", "#2979c4", True),
+        (f"  ( {abs_diff} mm {diff_dir} the average )", "#888", False),
+    ]
+    comp_fig.canvas.draw()
+    renderer = comp_fig.canvas.get_renderer()
+    ax_bbox = hax.get_window_extent(renderer=renderer)
+    x_cur, y_row = 0.012, 0.28
+    for txt, col, bold in parts:
+        t = hax.text(x_cur, y_row, txt, ha="left", va="top", fontsize=10.5,
+                     fontweight="bold" if bold else "normal", color=col, transform=hax.transAxes)
+        comp_fig.canvas.draw()
+        bb = t.get_window_extent(renderer=renderer)
+        x_cur += bb.width / ax_bbox.width
+
+    cax = comp_fig.add_subplot(spec[1])
+    cax.set_facecolor(C_BG)
+    _draw_chart(cax, series, current_year, median_ser, highlight_years, plume,
+                int(months_back), int(months_forward), name)
+    cax.set_title("")  # header panel already carries the title
+
+    comp_fig.tight_layout(pad=0.8)
+
+    buf = io.BytesIO()
+    comp_fig.savefig(buf, format="jpeg", dpi=DPI, bbox_inches="tight", facecolor="white")
+    buf.seek(0)
+    plt.close(comp_fig)
+    return buf
+
+
+dl_key = f"season_jpeg::{sid}::{months_back}::{months_forward}"
 col_l, col_c, col_r = st.columns([1, 2, 1])
 with col_c:
-    st.download_button(
-        "\U0001F4E5  Download chart (JPEG)", data=buf,
-        file_name=f"season_{name.replace(' ', '_')}_{months_back}mo.jpg",
-        mime="image/jpeg", width="stretch",
-    )
+    if st.button("\U0001F4E5  Prepare download image (JPEG)", width="stretch"):
+        with st.spinner("Generating image\u2026"):
+            st.session_state[dl_key] = _build_composite_jpeg().getvalue()
+    if dl_key in st.session_state:
+        st.download_button(
+            "\U0001F5BC\uFE0F  Download chart (JPEG)", data=st.session_state[dl_key],
+            file_name=f"season_{name.replace(' ', '_')}_{months_back}mo.jpg",
+            mime="image/jpeg", width="stretch",
+        )
