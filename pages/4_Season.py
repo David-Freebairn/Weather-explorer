@@ -452,10 +452,10 @@ with c1:
     st.success(f"\U0001F4CD {station.get('label', station.get('name', ''))}")
 with c2:
     months_back = st.number_input("Look back (months)", min_value=1, max_value=60,
-                                   value=6, step=1, key="se_months_back")
+                                   value=8, step=1, key="se_months_back")
 with c3:
     months_forward = st.number_input("Look forward (months)", min_value=1, max_value=24,
-                                      value=6, step=1, key="se_months_forward")
+                                      value=2, step=1, key="se_months_forward")
 with c4:
     st.page_link(HOME, label="Change station")
 
