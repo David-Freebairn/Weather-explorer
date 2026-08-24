@@ -30,6 +30,11 @@ def _load() -> "pd.DataFrame | None":
         return None
 
 
+def is_loaded() -> bool:
+    """True if the bundled reliability CSV was found and parsed successfully."""
+    return _load() is not None
+
+
 def get_pct_observed(station_id: int) -> "float | None":
     """Return pct_observed (0-100) for a station, or None if not in the lookup."""
     df = _load()
