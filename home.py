@@ -20,14 +20,129 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import folium
 import numpy as np
 import streamlit as st
+from streamlit_folium import st_folium
 
 from core.nav import RAINFALL, MONTHLY, SNAPSHOT, SEASON
-from core.silo import search_stations
+from core.reliability import get_pct_observed, reliability_color, reliability_label
+from core.silo import fetch_nearby_stations, search_stations
 from core.styles import apply_styles, save_station, load_station
 
 apply_styles()
+
+
+def _station_picker_map(stations: list, chosen_label: str):
+    """
+    Render search results as clickable markers. Returns the label of the
+    station whose marker was clicked this run, or None.
+
+    Only stations with known lat/lon are plotted; if none qualify, the
+    caller should skip calling this (nothing to show).
+    """
+    located = [s for s in stations if s.get("lat") is not None and s.get("lon") is not None]
+    if not located:
+        return None
+
+    lats = [s["lat"] for s in located]
+    lons = [s["lon"] for s in located]
+    center = [sum(lats) / len(lats), sum(lons) / len(lons)]
+    # Rough zoom from spread of results — tighter cluster, closer zoom.
+    spread = max(max(lats) - min(lats), max(lons) - min(lons)) if len(located) > 1 else 0.1
+    zoom = 9 if spread < 0.5 else (7 if spread < 2 else 5)
+
+    m = folium.Map(location=center, zoom_start=zoom, tiles="CartoDB positron")
+    for s in located:
+        is_chosen = s["label"] == chosen_label
+        folium.CircleMarker(
+            location=[s["lat"], s["lon"]],
+            radius=14 if is_chosen else 11,
+            tooltip=s["label"],
+            popup=s["label"],
+            color="#1a5276" if is_chosen else "#2980b9",
+            fill=True,
+            fill_color="#e8a33d" if is_chosen else "#2980b9",
+            fill_opacity=0.9 if is_chosen else 0.75,
+            weight=3 if is_chosen else 2,
+        ).add_to(m)
+
+    result = st_folium(
+        m, height=320, use_container_width=True,
+        returned_objects=["last_object_clicked_tooltip"],
+        key="we_station_map",
+    )
+    return result.get("last_object_clicked_tooltip") if result else None
+
+
+def _reliability_map(station: dict, radius_km: int):
+    """
+    Map of `station` with a dashed radius circle and nearby SILO stations
+    colour-coded by data reliability (bundled silo_reliability.csv,
+    joined on station id against the live SILO 'near' results).
+    """
+    try:
+        nearby = fetch_nearby_stations(station["id"], radius_km=radius_km)
+    except Exception as e:
+        st.warning(f"Could not load nearby stations: {e}")
+        return
+    if not nearby:
+        st.caption("No other SILO stations found in range.")
+        return
+
+    m = folium.Map(location=[station["lat"], station["lon"]], zoom_start=9,
+                    tiles="CartoDB positron")
+    folium.Circle(
+        location=[station["lat"], station["lon"]],
+        radius=radius_km * 1000,  # metres
+        color="#1a5276", weight=1.5, fill=False, dash_array="6,6",
+    ).add_to(m)
+
+    tooltip_lookup = {}
+    for s in nearby:
+        pct = get_pct_observed(s["id"])
+        is_center = s["id"] == station["id"]
+        tip = f'{s["name"]} — {reliability_label(pct)}'
+        tooltip_lookup[tip] = s
+        folium.CircleMarker(
+            location=[s["lat"], s["lon"]],
+            radius=16 if is_center else 12,
+            tooltip=tip,
+            color="#000000" if is_center else reliability_color(pct),
+            weight=3 if is_center else 2,
+            fill=True,
+            fill_color=reliability_color(pct),
+            fill_opacity=0.85,
+        ).add_to(m)
+
+    result = st_folium(
+        m, height=380, use_container_width=True,
+        returned_objects=["last_object_clicked_tooltip"],
+        key="we_reliability_map",
+    )
+
+    st.caption(
+        "\U0001F7E2 \u226590% observed &nbsp;&nbsp; "
+        "\U0001F7E0 50\u201389% &nbsp;&nbsp; "
+        "\U0001F534 <50% &nbsp;&nbsp; "
+        "\u26AA no data &nbsp;&nbsp;\u00b7&nbsp;&nbsp; "
+        f"dashed circle = {radius_km} km radius &nbsp;&nbsp;\u00b7&nbsp;&nbsp; "
+        "click a dot to switch station",
+        unsafe_allow_html=True,
+    )
+
+    clicked_tip = result.get("last_object_clicked_tooltip") if result else None
+    clicked = tooltip_lookup.get(clicked_tip) if clicked_tip else None
+    if clicked and clicked["id"] != station["id"]:
+        label = clicked["name"]
+        if clicked.get("state"):
+            label += f'  [{clicked["state"]}]'
+        if clicked.get("lat") is not None and clicked.get("lon") is not None:
+            label += f'  ({clicked["lat"]:.3f}, {clicked["lon"]:.3f})'
+        st.session_state["we_chosen"]    = label
+        st.session_state["we_confirmed"] = True
+        save_station({**clicked, "label": label})
+        st.rerun()
 
 
 def _fig_to_b64(fig) -> str:
@@ -158,7 +273,7 @@ _shared = load_station()
 if _shared and not st.session_state.get("we_confirmed"):
     st.session_state["we_stations"]  = [_shared]
     st.session_state["we_confirmed"] = True
-    st.session_state["we_chosen"]    = _shared.get("label", "")
+    st.session_state["we_chosen"]    = _shared.get("label") or _shared.get("name", "")
 
 # ── Select a weather station ───────────────────────────────────────────────────
 with st.container(border=True):
@@ -211,6 +326,14 @@ with st.container(border=True):
                             save_station(next(s for s in stations if s["label"] == chosen))
                             st.rerun()
                         st.markdown('</div>', unsafe_allow_html=True)
+
+                    st.caption("...or click a station on the map:")
+                    clicked_label = _station_picker_map(stations, chosen)
+                    if clicked_label and clicked_label in labels:
+                        st.session_state["we_chosen"]    = clicked_label
+                        st.session_state["we_confirmed"] = True
+                        save_station(next(s for s in stations if s["label"] == clicked_label))
+                        st.rerun()
             elif st.session_state.get("we_last_query"):
                 st.warning("No stations found. Try a shorter search term.")
     else:
@@ -222,6 +345,14 @@ with st.container(border=True):
             if st.button("Change", key="we_change", width="stretch"):
                 st.session_state["we_reset"] = True
                 st.rerun()
+
+        _station = load_station()
+        if _station and _station.get("lat") is not None and _station.get("lon") is not None:
+            radius_km = st.slider(
+                "Radius (km)", min_value=10, max_value=200, value=50, step=10,
+                key="we_radius",
+            )
+            _reliability_map(_station, radius_km=radius_km)
 
 station = load_station()
 
