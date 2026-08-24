@@ -77,6 +77,44 @@ def search_stations(query: str) -> list:
     return stations
 
 
+def fetch_nearby_stations(station_id: int, radius_km: int = 50) -> list:
+    """
+    Stations within `radius_km` of `station_id`, via SILO's format=near.
+    No username/password required. Returns list of dicts including
+    distance_km, sorted by distance (as SILO returns them); the queried
+    station itself is included at distance 0.0.
+    """
+    url = (f"{_PATCHEDPT}?format=near&station={station_id}&radius={radius_km}")
+    try:
+        req = urllib.request.Request(url, headers=_HEADERS)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        raise RuntimeError(f"SILO nearby-station search failed: {exc}") from exc
+
+    stations = []
+    for line in raw.strip().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "|" not in line:
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 6:
+            continue
+        try:
+            sid   = int(parts[0])
+            name  = parts[1].strip()
+            lat   = float(parts[2])
+            lon   = float(parts[3])
+            state = parts[4].strip()
+            elev  = float(parts[5]) if parts[5] else None
+            dist  = float(parts[6]) if len(parts) > 6 and parts[6] else None
+            stations.append({"id": sid, "name": name, "lat": lat, "lon": lon,
+                              "state": state, "elevation": elev, "distance_km": dist})
+        except (ValueError, IndexError):
+            continue
+    return stations
+
+
 # ── Core fetch ───────────────────────────────────────────────────────────────
 
 def fetch_station_met(station_id: int, start: str, end: str,
