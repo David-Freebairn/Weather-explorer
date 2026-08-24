@@ -26,7 +26,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from core.nav import RAINFALL, MONTHLY, SNAPSHOT, SEASON
-from core.reliability import get_pct_observed, reliability_color, reliability_label
+from core.reliability import get_pct_observed, is_loaded, reliability_color, reliability_label
 from core.silo import fetch_nearby_stations, search_stations
 from core.styles import apply_styles, save_station, load_station
 
@@ -89,6 +89,14 @@ def _reliability_map(station: dict, radius_km: int):
     if not nearby:
         st.caption("No other SILO stations found in range.")
         return
+
+    if not is_loaded():
+        st.warning(
+            "Reliability data file not found (`data/silo_reliability.csv`) — "
+            "stations below are shown without colour coding. Check that the "
+            "`data/` folder was included when this app was deployed.",
+            icon="\u26a0\ufe0f",
+        )
 
     m = folium.Map(location=[station["lat"], station["lon"]], zoom_start=9,
                     tiles="CartoDB positron")
