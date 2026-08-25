@@ -423,7 +423,7 @@ def make_chart(series, current_year, median_ser, highlight_years, plume,
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 
-st.markdown("## Season")
+st.markdown("## Season?")
 st.caption("This season's rainfall vs history, and what the next few months could look like")
 
 station = load_station()
@@ -451,11 +451,17 @@ c1, c2, c3, c4 = st.columns([2, 1.6, 1.6, 2])
 with c1:
     st.success(f"\U0001F4CD {station.get('label', station.get('name', ''))}")
 with c2:
-    months_back = st.number_input("Look back (months)", min_value=1, max_value=60,
-                                   value=8, step=1, key="se_months_back")
+    months_back = st.number_input(
+        "Look back (months)", min_value=1, max_value=60,
+        value=int(st.session_state.get("persist_se_months_back", 8)),
+        step=1, key="se_months_back")
+    st.session_state["persist_se_months_back"] = months_back
 with c3:
-    months_forward = st.number_input("Look forward (months)", min_value=1, max_value=24,
-                                      value=2, step=1, key="se_months_forward")
+    months_forward = st.number_input(
+        "Look forward (months)", min_value=1, max_value=24,
+        value=int(st.session_state.get("persist_se_months_forward", 2)),
+        step=1, key="se_months_forward")
+    st.session_state["persist_se_months_forward"] = months_forward
 with c4:
     st.page_link(HOME, label="Change station")
 
@@ -589,15 +595,12 @@ def _build_composite_jpeg() -> io.BytesIO:
     return buf
 
 
-dl_key = f"season_jpeg::{sid}::{months_back}::{months_forward}"
 col_l, col_c, col_r = st.columns([1, 2, 1])
 with col_c:
-    if st.button("\U0001F4E5  Prepare download image (JPEG)", width="stretch"):
-        with st.spinner("Generating image\u2026"):
-            st.session_state[dl_key] = _build_composite_jpeg().getvalue()
-    if dl_key in st.session_state:
-        st.download_button(
-            "\U0001F5BC\uFE0F  Download chart (JPEG)", data=st.session_state[dl_key],
-            file_name=f"season_{name.replace(' ', '_')}_{months_back}mo.jpg",
-            mime="image/jpeg", width="stretch",
-        )
+    with st.spinner("Generating image\u2026"):
+        jpeg_bytes = _build_composite_jpeg().getvalue()
+    st.download_button(
+        "\U0001F4E5  Download chart (JPEG)", data=jpeg_bytes,
+        file_name=f"season_{name.replace(' ', '_')}_{months_back}mo.jpg",
+        mime="image/jpeg", width="stretch",
+    )

@@ -48,7 +48,7 @@ def _handle_silo_down(exc):
     st.stop()
 
 
-st.markdown("## Monthly averages")
+st.markdown("## Climate by month")
 st.caption("Big picture for rainfall, evaporation and temperature.")
 
 station = load_station()
@@ -72,7 +72,7 @@ with st.spinner(f"Loading climate data for {station['name']}\u2026 (first load m
 
 df = st.session_state["climate_df"].copy()
 
-c1, c2 = st.columns([2, 5])
+c1, c2 = st.columns([5, 1])
 with c1:
     st.success(f"\U0001F4CD {station.get('label', station.get('name', ''))}")
 with c2:
@@ -191,10 +191,13 @@ st.markdown("".join(html), unsafe_allow_html=True)
 with st.expander("Yearly grid — monthly rainfall totals (recent years)"):
     max_years = min(30, len(available))
     default_years = min(25, max_years)
+    _persisted_n = st.session_state.get("persist_myr_grid_years", default_years)
+    _clamped_n = min(max(int(_persisted_n), min(5, max_years)), max_years)
     n_years = st.slider(
         "Years to show", min_value=min(5, max_years), max_value=max_years,
-        value=default_years, step=1, key="myr_grid_years",
+        value=_clamped_n, step=1, key="myr_grid_years",
     )
+    st.session_state["persist_myr_grid_years"] = n_years
     recent_years = [y for y in available if y > end_year - n_years]
 
     grid = (df[df["year"].isin(recent_years)]

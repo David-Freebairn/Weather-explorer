@@ -68,7 +68,7 @@ with st.spinner(f"Loading climate data for {station['name']}\u2026 (first load m
 df = st.session_state["climate_df"].copy()
 available_years = sorted(df["year"].unique())
 
-c1, c2 = st.columns([2, 5])
+c1, c2 = st.columns([5, 1])
 with c1:
     st.success(f"\U0001F4CD {station.get('label', station.get('name', ''))}")
 with c2:
@@ -81,11 +81,14 @@ with yc1:
     st.markdown('<div style="margin-top:8px; font-weight:600;">Year</div>',
                 unsafe_allow_html=True)
 with yc2:
+    _persisted_year = st.session_state.get("persist_rc_year", default_year)
+    _clamped_year = min(max(int(_persisted_year), int(available_years[0])), int(available_years[-1]))
     year = st.number_input(
         "Year", label_visibility="collapsed",
         min_value=int(available_years[0]), max_value=int(available_years[-1]),
-        value=int(default_year), step=1, key="rc_year",
+        value=_clamped_year, step=1, key="rc_year",
     )
+    st.session_state["persist_rc_year"] = year
 
 dy   = df[df["year"] == year]
 hist = df[df["year"] != year]
