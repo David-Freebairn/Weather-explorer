@@ -15,6 +15,7 @@ overall navigation menu are set up there.
 
 import base64
 import io
+from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
@@ -25,12 +26,54 @@ import numpy as np
 import streamlit as st
 from streamlit_folium import st_folium
 
-from core.nav import RAINFALL, MONTHLY, SNAPSHOT, SEASON
+from core.nav import RAINFALL, MONTHLY, SNAPSHOT, SEASON, ODDS, HOWWET, TREND
 from core.reliability import get_pct_observed, is_loaded, reliability_color, reliability_label
 from core.silo import fetch_nearby_stations, search_stations
 from core.styles import apply_styles, save_station, load_station
 
 apply_styles()
+
+_ICON_PATH = Path(__file__).resolve().parent / "assets" / "we_icon.png"
+
+ABOUT_TEXT = """
+**To get started:**
+
+- Select a location by name, use the map to see if SILO sites are available with better quality. It may take a minute to initially load climate data.
+- Select an analysis from the menu.
+    - Season
+    - Howwet+
+    - Odds?
+    - Snapshot
+    - Variability vs Trend
+- Adjust each query to suit your situation e.g. dates, soil type etc.
+- Information is available from the About button on most analyses.
+
+**Background**
+
+Weather drives how an agricultural system performs, especially in our Australian conditions where variability is high and uncertainty dominates many decisions. These apps use recent and long-term weather data (SILO) to provide estimates of how the current season is tracking: rainfall, soil water, nitrogen mineralisation. One analysis provides estimates of the chances or odds of rainfall at specific times while two analyses aim to give an overview of the climate i.e. what happens over many years.
+
+**Decision framework**
+
+Decisions are generally based on an understanding of Current conditions and Future expectations. Current conditions are what we sense around us and can be inferred by recent weather data. Future expectations are based on our experience, with a natural bias toward recent experiences. Weather Explorer's five analyses provide insight into both current conditions (soil water, nitrate mineralisation) and future events (rainfall). Application of long-term records help us avoid the trap of recent history bias by providing objective assessment of odds of rain and soil water.
+
+- **How's the season** provides an objective assessment of rain since a specified date. Is the season well above, below or near average?
+- **How much rain is stored?** uses recent rainfall data to estimate soil water through a fallow and into a crop.
+- **What are the odds?** provides an unbiased estimate of the chances of a specified rain event.
+- **Snapshot** provides a graphical comparison of a year's weather in the context of long-term values.
+- **Variability vs Trend** provides an objective picture of rainfall and temperature trends since 1900 and within four 30-year periods.
+
+**Acknowledgements**
+
+Weather data: Queensland Government's SILO database sourced from the Bureau of Meteorology and the many voluntary weather recorders across the Australian continent since the 1890's.
+
+Soil water and nitrate mineralisation estimate: Uses a well-tested water balance model used in models such as PERFECT, Howwet? and ApSim.
+
+Interface: Elements of graphical presentations come from Howoften?, Howwet? and PYCalc while the "Snapshot" graphic is based on an image in the New York Times.
+
+**Disclosure**
+
+These analyses have been developed based on previous experience in designing climate focused decision support tools using Anthropic's Claude AI software. This software was built to prototype new capabilities.
+"""
 
 
 def _station_picker_map(stations: list, chosen_label: str):
@@ -258,7 +301,69 @@ def _icon_season_b64() -> str:
     return _fig_to_b64(fig)
 
 
-st.markdown("# Weather explorer")
+@st.cache_data
+def _icon_howwet_b64() -> str:
+    """Small PASW-band preview, echoing Howwet+'s soil-water chart."""
+    rng = np.random.default_rng(9)
+    x = np.arange(90)
+    low = 20 + 0.15 * x + rng.normal(0, 1.5, 90)
+    high = 60 + 0.25 * x + rng.normal(0, 1.5, 90)
+    median = (low + high) / 2
+    current = median + rng.normal(0, 4, 90).cumsum() * 0.05
+
+    fig, ax = plt.subplots(figsize=(2.5, 1.3), dpi=100)
+    ax.fill_between(x, low, high, color="#A8C4E0", alpha=0.5, linewidth=0)
+    ax.plot(x, median, color="#7B5EA7", lw=1.2)
+    ax.plot(x, current, color="#1A2F6B", lw=1.8)
+    ax.set_xticks([]); ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    return _fig_to_b64(fig)
+
+
+@st.cache_data
+def _icon_trend_b64() -> str:
+    """Small scatter + best-fit-line preview, echoing the Trend page."""
+    rng = np.random.default_rng(13)
+    x = np.arange(60)
+    y = 300 + 0.3 * x + rng.normal(0, 40, 60)
+    slope, intercept = np.polyfit(x, y, 1)
+
+    fig, ax = plt.subplots(figsize=(2.5, 1.3), dpi=100)
+    ax.scatter(x, y, s=8, color="#7fb3e8", alpha=0.8, edgecolor="none")
+    ax.plot(x, slope * x + intercept, color="#c0392b", lw=1.6)
+    ax.set_xticks([]); ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    return _fig_to_b64(fig)
+
+
+@st.cache_data
+def _icon_odds_b64() -> str:
+    """Small hit/miss threshold-bar preview, echoing the Odds page."""
+    rng = np.random.default_rng(5)
+    vals = rng.uniform(5, 60, 20)
+    threshold = 30
+    colors = ["#4da6ff" if v >= threshold else "#b8cfe8" for v in vals]
+
+    fig, ax = plt.subplots(figsize=(2.5, 1.3), dpi=100)
+    ax.bar(np.arange(20), vals, color=colors, width=0.7)
+    ax.axhline(threshold, color="#0b1f3a", lw=1.3, ls="--")
+    ax.set_xticks([]); ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    return _fig_to_b64(fig)
+
+
+title_col1, title_col2, title_col3 = st.columns([1, 8, 1], vertical_alignment="center")
+with title_col1:
+    if _ICON_PATH.exists():
+        st.image(str(_ICON_PATH), width=64)
+with title_col2:
+    st.markdown("# Weather explorer")
+with title_col3:
+    with st.popover("\u2139\uFE0F About"):
+        st.markdown(ABOUT_TEXT)
 
 # ── Handle "Change" reset (must happen before widgets render) ─────────────────
 if st.session_state.pop("we_reset", False):
@@ -357,46 +462,62 @@ with st.container(border=True):
         _station = load_station()
         if _station and _station.get("lat") is not None and _station.get("lon") is not None:
             radius_km = st.slider(
-                "Radius (km)", min_value=10, max_value=200, value=50, step=10,
-                key="we_radius",
+                "Radius (km)", min_value=10, max_value=200,
+                value=int(st.session_state.get("persist_we_radius", 50)),
+                step=10, key="we_radius",
             )
+            st.session_state["persist_we_radius"] = radius_km
             _reliability_map(_station, radius_km=radius_km)
 
 station = load_station()
 
 st.write("")
-st.markdown("**Select an analysis**")
+
+
+def _render_cards(cards):
+    cols = st.columns(len(cards))
+    for col, (title, sub, icon_b64, target, key) in zip(cols, cards):
+        with col:
+            with st.container(border=True, key=key):
+                st.markdown(
+                    f'<div style="text-align:center;">'
+                    f'<h3 style="margin:0.2rem 0 0.15rem 0;font-size:1.15rem;">{title}</h3>'
+                    f'<p style="color:#666;font-size:0.85rem;margin:0 0 0.6rem 0;">{sub}</p>'
+                    f'<img src="data:image/png;base64,{icon_b64}" '
+                    f'style="width:100%;border:1px solid #e5e5e5;border-radius:6px;'
+                    f'background:#fafafa;padding:4px;box-sizing:border-box;"/>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                st.page_link(target, label="Open", disabled=not station,
+                             use_container_width=True)
+
+
+# ── Current weather, future odds ─────────────────────────────────────────────
+st.markdown("**Current weather, future odds**")
+_render_cards([
+    ("Season?", "This season vs history", _icon_season_b64(),
+     SEASON, "we_card_season"),
+    ("Howwet +N", "Soil water, nitrogen & yield", _icon_howwet_b64(),
+     HOWWET, "we_card_howwet"),
+    ("What chance?", "Rainfall frequency analysis", _icon_odds_b64(),
+     ODDS, "we_card_odds"),
+])
+
 st.write("")
 
-# ── Analysis cards ──────────────────────────────────────────────────────────────
-col1, col2, col3, col4 = st.columns(4)
-
-cards = [
-    (col1, "Rainfall chart", "Calendar", _icon_calendar_b64(),
-     RAINFALL, "we_card_1"),
-    (col2, "Monthly averages", "Rainfall, evap., temperature", _icon_monthly_avg_b64(),
-     MONTHLY, "we_card_2"),
-    (col3, "Snapshot", "Of a year", _icon_snapshot_b64(),
-     SNAPSHOT, "we_card_3"),
-    (col4, "Season", "This season vs history", _icon_season_b64(),
-     SEASON, "we_card_4"),
-]
-
-for col, title, sub, icon_b64, target, key in cards:
-    with col:
-        with st.container(border=True, key=key):
-            st.markdown(
-                f'<div style="text-align:center;">'
-                f'<h3 style="margin:0.2rem 0 0.15rem 0;font-size:1.15rem;">{title}</h3>'
-                f'<p style="color:#666;font-size:0.85rem;margin:0 0 0.6rem 0;">{sub}</p>'
-                f'<img src="data:image/png;base64,{icon_b64}" '
-                f'style="width:100%;border:1px solid #e5e5e5;border-radius:6px;'
-                f'background:#fafafa;padding:4px;box-sizing:border-box;"/>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-            st.page_link(target, label="Open", disabled=not station,
-                         use_container_width=True)
+# ── History ───────────────────────────────────────────────────────────────────
+st.markdown("**History**")
+_render_cards([
+    ("Snapshot", "Of a year, plus 100yr rainfall", _icon_snapshot_b64(),
+     SNAPSHOT, "we_card_snapshot"),
+    ("Trend vs variability", "Rainfall/temp trend over time", _icon_trend_b64(),
+     TREND, "we_card_trend"),
+    ("Rainfall chart", "Calendar", _icon_calendar_b64(),
+     RAINFALL, "we_card_rainfall"),
+    ("Climate by month", "Rainfall, evap., temperature", _icon_monthly_avg_b64(),
+     MONTHLY, "we_card_monthly"),
+])
 
 if not station:
     st.caption("Select a station above to enable these.")

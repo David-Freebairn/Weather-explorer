@@ -9,11 +9,31 @@ Run locally with:  streamlit run Menu.py
 Deploy main file:   Menu.py
 """
 
+from pathlib import Path
 import streamlit as st
 
-st.set_page_config(page_title="Weather Explorer", layout="wide")
+_ICON_PATH = Path(__file__).resolve().parent / "assets" / "we_icon.png"
 
-from core.nav import ALL_PAGES  # noqa: E402  (must follow set_page_config)
+st.set_page_config(
+    page_title="Weather Explorer",
+    page_icon=str(_ICON_PATH) if _ICON_PATH.exists() else "\U0001F326\uFE0F",
+    layout="wide",
+)
 
-pg = st.navigation(ALL_PAGES)
+from core.nav import SECTIONS  # noqa: E402  (must follow set_page_config)
+
+# Built-in sectioned sidebar nav is hidden and rebuilt manually below as a
+# flat, always-visible list — the built-in one renders section headers as
+# collapsible/expandable, which added an extra click to get to pages and
+# wasn't wanted here.
+pg = st.navigation(SECTIONS, position="hidden")
+
+with st.sidebar:
+    for section_label, pages in SECTIONS.items():
+        if section_label:
+            st.markdown(f"**{section_label}**")
+        for p in pages:
+            st.page_link(p)
+        st.write("")
+
 pg.run()
