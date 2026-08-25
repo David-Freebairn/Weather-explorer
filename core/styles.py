@@ -53,11 +53,40 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 [class*="st-key-we_card_"] [data-testid="stPageLink"] p {
     font-weight: 600;
     font-size: 1rem;
-    color: #1a5276;
+    color: #2979c4;
     margin: 0;
 }
 [class*="st-key-we_card_"] [data-testid="stPageLink"]:hover {
     background: #f5f8fa;
+}
+
+/* Card titles themselves — blue, to read as clickable alongside the
+   "Open" link below them, not just plain section headers. */
+[class*="st-key-we_card_"] h3 {
+    color: #2979c4 !important;
+}
+
+/* Sidebar navigation links (custom-built, see Menu.py) — blue, same
+   reasoning as the card titles above. */
+section[data-testid="stSidebar"] [data-testid="stPageLink"] p,
+section[data-testid="stSidebar"] [data-testid="stPageLink"] span {
+    color: #2979c4 !important;
+    font-weight: 500;
+}
+
+/* Leaflet/folium map attribution ("Leaflet | (C) OpenStreetMap (C) CARTO")
+   — required by the tile providers' terms, so kept rather than removed,
+   but shrunk and muted so it doesn't cover map content/controls on
+   narrow screens (especially iPad/iPhone, where the map itself is short). */
+.leaflet-control-attribution {
+    font-size: 8px !important;
+    line-height: 1.15 !important;
+    max-width: 60vw;
+    opacity: 0.6;
+    padding: 0 4px !important;
+}
+.leaflet-control-attribution a {
+    color: #666 !important;
 }
 </style>
 """
