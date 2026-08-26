@@ -34,6 +34,8 @@ from core.styles import apply_styles, save_station, load_station
 apply_styles()
 
 _ICON_PATH = Path(__file__).resolve().parent / "assets" / "we_icon.png"
+_SEASON_ICON_PATH = Path(__file__).resolve().parent / "assets" / "season_icon.jpg"
+_HOWWET_ICON_PATH = Path(__file__).resolve().parent / "assets" / "howwet_card_icon.jpg"
 
 ABOUT_TEXT = """
 **To get started:**
@@ -204,6 +206,17 @@ def _fig_to_b64(fig) -> str:
 
 
 @st.cache_data
+def _image_file_b64(path: str) -> str:
+    """Base64-encode a static image file as PNG (matches the data-URI
+    mime type _render_cards expects), regardless of the source format."""
+    from PIL import Image
+    im = Image.open(path).convert("RGB")
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+@st.cache_data
 def _icon_calendar_b64() -> str:
     """Small calendar-grid preview, echoing the Rainfall chart page."""
     rng = np.random.default_rng(7)
@@ -265,59 +278,6 @@ def _icon_snapshot_b64() -> str:
         for spine in ax.spines.values():
             spine.set_visible(False)
     fig.subplots_adjust(hspace=0.15)
-    return _fig_to_b64(fig)
-
-
-@st.cache_data
-def _icon_season_b64() -> str:
-    """Small spaghetti + forward-fan preview, echoing the Season page."""
-    rng = np.random.default_rng(11)
-    x_back = np.linspace(0, 1, 60)
-    x_fwd = np.linspace(1, 1.6, 20)
-
-    fig, ax = plt.subplots(figsize=(2.5, 1.3), dpi=100)
-    for _ in range(14):
-        walk = np.cumsum(rng.uniform(0, 1, 60))
-        walk = walk / walk[-1] * rng.uniform(0.5, 1.0)
-        ax.plot(x_back, walk, color="#7ab4d8", lw=0.8, alpha=0.4)
-
-    highlight_colors = ["#e8a33d", "#4f9d69", "#7d5ba6"]
-    for c in highlight_colors:
-        walk = np.cumsum(rng.uniform(0, 1, 60))
-        walk = walk / walk[-1] * rng.uniform(0.6, 0.95)
-        ax.plot(x_back, walk, color=c, lw=1.4, alpha=0.9)
-
-    current = np.cumsum(rng.uniform(0.3, 1, 60))
-    current = current / current[-1] * 0.75
-    ax.plot(x_back, current, color="#cc2200", lw=2)
-
-    p20 = current[-1] + (x_fwd - 1) * 0.15
-    p80 = current[-1] + (x_fwd - 1) * 1.1
-    ax.fill_between(x_fwd, p20, p80, color="#e8a33d", alpha=0.28, linewidth=0)
-
-    ax.set_xticks([]); ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    return _fig_to_b64(fig)
-
-
-@st.cache_data
-def _icon_howwet_b64() -> str:
-    """Small PASW-band preview, echoing Howwet+'s soil-water chart."""
-    rng = np.random.default_rng(9)
-    x = np.arange(90)
-    low = 20 + 0.15 * x + rng.normal(0, 1.5, 90)
-    high = 60 + 0.25 * x + rng.normal(0, 1.5, 90)
-    median = (low + high) / 2
-    current = median + rng.normal(0, 4, 90).cumsum() * 0.05
-
-    fig, ax = plt.subplots(figsize=(2.5, 1.3), dpi=100)
-    ax.fill_between(x, low, high, color="#A8C4E0", alpha=0.5, linewidth=0)
-    ax.plot(x, median, color="#7B5EA7", lw=1.2)
-    ax.plot(x, current, color="#1A2F6B", lw=1.8)
-    ax.set_xticks([]); ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
     return _fig_to_b64(fig)
 
 
@@ -461,13 +421,14 @@ with st.container(border=True):
 
         _station = load_station()
         if _station and _station.get("lat") is not None and _station.get("lon") is not None:
-            radius_km = st.slider(
-                "Radius (km)", min_value=10, max_value=200,
-                value=int(st.session_state.get("persist_we_radius", 50)),
-                step=10, key="we_radius",
-            )
-            st.session_state["persist_we_radius"] = radius_km
-            _reliability_map(_station, radius_km=radius_km)
+            with st.expander("Show reliability map"):
+                radius_km = st.slider(
+                    "Radius (km)", min_value=10, max_value=200,
+                    value=int(st.session_state.get("persist_we_radius", 50)),
+                    step=10, key="we_radius",
+                )
+                st.session_state["persist_we_radius"] = radius_km
+                _reliability_map(_station, radius_km=radius_km)
 
 station = load_station()
 
@@ -496,9 +457,9 @@ def _render_cards(cards):
 # ── Current weather, future odds ─────────────────────────────────────────────
 st.markdown("**Current weather, future odds**")
 _render_cards([
-    ("Season?", "This season vs history", _icon_season_b64(),
+    ("Season?", "This season vs history", _image_file_b64(str(_SEASON_ICON_PATH)),
      SEASON, "we_card_season"),
-    ("Howwet +N", "Soil water, nitrogen & yield", _icon_howwet_b64(),
+    ("Howwet +N", "Soil water, nitrogen", _image_file_b64(str(_HOWWET_ICON_PATH)),
      HOWWET, "we_card_howwet"),
     ("What chance?", "Rainfall frequency analysis", _icon_odds_b64(),
      ODDS, "we_card_odds"),
@@ -509,9 +470,9 @@ st.write("")
 # ── History ───────────────────────────────────────────────────────────────────
 st.markdown("**History**")
 _render_cards([
-    ("Snapshot", "Of a year, plus 100yr rainfall", _icon_snapshot_b64(),
+    ("Snapshot", "By year, long term rainfall", _icon_snapshot_b64(),
      SNAPSHOT, "we_card_snapshot"),
-    ("Trend vs variability", "Rainfall/temp trend over time", _icon_trend_b64(),
+    ("Trend vs variability", "Rainfall, temperature trend", _icon_trend_b64(),
      TREND, "we_card_trend"),
     ("Rainfall chart", "Calendar", _icon_calendar_b64(),
      RAINFALL, "we_card_rainfall"),
